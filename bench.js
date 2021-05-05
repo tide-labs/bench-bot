@@ -340,6 +340,7 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
         .split("\n")
         .filter(function (path) { return path.length !== 0 })
         .map(function (path) {
+            console.log({ path, mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString() })
             return {
                 path,
                 content: fs.readFileSync(path).toString(),
