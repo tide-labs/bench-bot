@@ -1,4 +1,5 @@
 const fs = require("fs")
+const path = require("path")
 
 function errorResult(stderr, step) {
     return { error: true, step, stderr }
@@ -18,13 +19,13 @@ function BenchContext(app, config) {
     self.app = app;
     self.config = config;
 
-    self.runTask = function(cmd, title) {
+    self.runTask = function(cmd, { title, allowFailureCodes = [] } = {}) {
         app.log(title || cmd);
 
         const { stdout, stderr, code } = shell.exec(cmd, { silent: true });
         var error = false;
 
-        if (code != 0) {
+        if (code != 0 && !allowFailureCodes.includes(code)) {
             app.log(`ops.. Something went wrong (error code ${code})`);
             if (stderr) {
                 app.log(`stderr: ${stderr.trim()}`);
@@ -80,13 +81,22 @@ async function benchBranch(app, config) {
 
         var benchContext = new BenchContext(app, config);
         console.log(`Started benchmark "${benchConfig.title}."`);
-        shell.mkdir("git")
-        shell.cd(cwd + "/git")
 
-        var { error } = benchContext.runTask(`git clone https://github.com/${config.owner}/${config.repo}`);
-        if (error) {
-            app.log("Git clone failed, probably directory exists...");
+        const gitPath = path.join(cwd, "git")
+        if (!fs.existsSync(gitPath)) {
+            shell.mkdir("git")
         }
+        shell.cd(gitPath)
+
+        var { error, stderr } = benchContext.runTask(
+            `git clone https://github.com/${config.owner}/${config.repo}`,
+            {
+                allowFailureCodes: [
+                    128, // fatal: destination path 'foo' already exists and is not an empty directory.
+                ]
+            }
+        );
+        if (error) return errorResult(stderr);
 
         shell.cd(cwd + `/git/${config.repo}`);
 

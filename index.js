@@ -2,6 +2,14 @@ const fs = require("fs")
 const { createAppAuth } = require("@octokit/auth-app");
 var { benchBranch, benchmarkRuntime } = require("./bench");
 
+const instrument = function(app, context) {
+    if (context.github) {
+        context.github.hook.before("request", async (options) => {
+            app.log(`Sending request to ${options.url} with HTTP ${options.method}`)
+        })
+    }
+}
+
 module.exports = app => {
   const authenticator = createAppAuth({
       appId: process.env.APP_ID,
@@ -43,6 +51,8 @@ module.exports = app => {
       pushToken: auth.token,
       extra: extra,
     }
+
+    instrument(app, context)
 
     let report;
     if (action == "runtime") {
