@@ -379,7 +379,7 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
         const tryBlobs = [...blobs]
         tryBlobs.splice(invalidBlob, 1)
 
-        const tree = blobs
+        const tree = tryBlobs
             .map(function ({ filePath, sha }) {
                 return {
                     path: filePath,
