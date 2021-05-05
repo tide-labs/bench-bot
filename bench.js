@@ -365,63 +365,84 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
         }
     }
 
-    const tree = blobs
-        .map(function ({ filePath, sha }) {
-            return {
-                path: filePath,
-                sha,
-                // convert file mode from decimal to Linux's format
-                // https://stackoverflow.com/q/11775884
-                mode: parseInt(fs.statSync(filePath).mode.toString(8), 10).toString(),
-                type: "blob",
-            }
+    let invalidBlob = -1
+    while (true) {
+        invalidBlob++
+        if (invalidBlob > blobs.length - 1) {
+            break
+        }
+
+        await new Promise(function (resolve) {
+            setTimeout(resolve, 3000)
         })
-    const createTree = await github
-        .git
-        .createTree({
+
+        const tryBlobs = [...blobs]
+        tryBlobs.splice(invalidBlob, 1)
+
+        const tree = blobs
+            .map(function ({ filePath, sha }) {
+                return {
+                    path: filePath,
+                    sha,
+                    // convert file mode from decimal to Linux's format
+                    // https://stackoverflow.com/q/11775884
+                    mode: parseInt(fs.statSync(filePath).mode.toString(8), 10).toString(),
+                    type: "blob",
+                }
+            })
+        const createTree = await github
+            .git
+            .createTree({
+                owner,
+                repo,
+                tree,
+                base_tree: baseSHA
+            })
+        if (createTree.status !== 201) {
+            continue
+            //return errorResult(
+                //JSON.stringify(createTree.data),
+                //"failed to create a tree with the bench output"
+            //);
+        }
+
+        const createdTreeSHA = createTree.data.sha
+        const createCommit = await github.git.createCommit({
+            owner: owner,
+            repo: repo,
+            tree: createdTreeSHA,
+            parents: [baseSHA],
+            message: "merge master and add benchmark results"
+        })
+        if (createCommit.status !== 201) {
+            continue
+            //return errorResult(
+                //JSON.stringify(createCommit.data),
+                //"failed to create commit with the bench output"
+            //);
+        }
+
+        const createdCommitSHA = createCommit.data.sha
+        // Does not work for forks' pull requests of github.git.updateRef does not
+        // work on them. The workaround is to create a temporary ref, validate the
+        // commits there, then pull them back here; of course this is not
+        // implemented at the moment.
+        const updateBranch = await github.git.updateRef({
             owner,
             repo,
-            tree,
-            base_tree: baseSHA
+            sha: createdCommitSHA,
+            ref: `heads/${branch}`
         })
-    if (createTree.status !== 201) {
-        return errorResult(
-            JSON.stringify(createTree.data),
-            "failed to create a tree with the bench output"
-        );
-    }
+        if (updateBranch.status !== 200) {
+            continue
+            //return errorResult(
+                //JSON.stringify(updateBranch.data),
+                //`failed to update branch ${branch} with the bench output`
+            //);
+        }
 
-    const createdTreeSHA = createTree.data.sha
-    const createCommit = await github.git.createCommit({
-        owner: owner,
-        repo: repo,
-        tree: createdTreeSHA,
-        parents: [baseSHA],
-        message: "merge master and add benchmark results"
-    })
-    if (createCommit.status !== 201) {
-        return errorResult(
-            JSON.stringify(createCommit.data),
-            "failed to create commit with the bench output"
-        );
-    }
-
-    const createdCommitSHA = createCommit.data.sha
-    // Does not work for forks' pull requests of github.git.updateRef does not
-    // work on them. The workaround is to create a temporary ref, validate the
-    // commits there, then pull them back here; of course this is not
-    // implemented at the moment.
-    const updateBranch = await github.git.updateRef({
-        owner,
-        repo,
-        sha: createdCommitSHA,
-        ref: `heads/${branch}`
-    })
-    if (updateBranch.status !== 200) {
-        return errorResult(
-            JSON.stringify(updateBranch.data),
-            `failed to update branch ${branch} with the bench output`
-        );
+        console.log({ worked: tryBlobs, invalidBlob })
+        break
     }
 }
 
