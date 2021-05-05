@@ -346,7 +346,6 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
         .split("\n")
         .filter(function (path) { return path.length !== 0 })
         .map(function (path) {
-            console.log({ path, mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString() })
             return {
                 path,
                 type: "blob",
@@ -417,44 +416,49 @@ async function benchmarkRuntime(app, config, { github }) {
 
         let command = config.extra.split(" ")[0];
 
-        var benchConfig;
-        if (config.repo == "substrate") {
-            benchConfig = SubstrateRuntimeBenchmarkConfigs[command];
-        } else if (config.repo == "polkadot") {
-            benchConfig = PolkadotRuntimeBenchmarkConfigs[command];
-        } else {
-            return errorResult(`${config.repo} repo is not supported.`)
-        }
+        //var benchConfig;
+        //if (config.repo == "substrate") {
+            //benchConfig = SubstrateRuntimeBenchmarkConfigs[command];
+        //} else if (config.repo == "polkadot") {
+            //benchConfig = PolkadotRuntimeBenchmarkConfigs[command];
+        //} else {
+            //return errorResult(`${config.repo} repo is not supported.`)
+        //}
 
-        var extra = config.extra.split(" ").slice(1).join(" ").trim();
+        //var extra = config.extra.split(" ").slice(1).join(" ").trim();
 
-        if (!checkAllowedCharacters(extra)) {
-            return errorResult(`Not allowed to use #&|; in the command!`);
-        }
+        //if (!checkAllowedCharacters(extra)) {
+            //return errorResult(`Not allowed to use #&|; in the command!`);
+        //}
 
-        // Append extra flags to the end of the command
-        let branchCommand = benchConfig.branchCommand;
-        if (command == "custom") {
-            // extra here should just be raw arguments to add to the command
-            branchCommand += " " + extra;
-        } else {
-            // extra here should be the name of a pallet
-            branchCommand = branchCommand.replace("{pallet_name}", extra);
-            // custom output file name so that pallets with path don't cause issues
-            let outputFile = extra.includes("::") ? extra.replace("::", "_") + ".rs" : '';
-            branchCommand = branchCommand.replace("{output_file}", outputFile);
-            // pallet folder should be just the name of the pallet, without the leading
-            // "pallet_" or "frame_", then separated with "-"
-            let palletFolder = extra.split("_").slice(1).join("-").trim();
-            branchCommand = branchCommand.replace("{pallet_folder}", palletFolder);
-        }
+        //// Append extra flags to the end of the command
+        //let branchCommand = benchConfig.branchCommand;
+        //if (command == "custom") {
+            //// extra here should just be raw arguments to add to the command
+            //branchCommand += " " + extra;
+        //} else {
+            //// extra here should be the name of a pallet
+            //branchCommand = branchCommand.replace("{pallet_name}", extra);
+            //// custom output file name so that pallets with path don't cause issues
+            //let outputFile = extra.includes("::") ? extra.replace("::", "_") + ".rs" : '';
+            //branchCommand = branchCommand.replace("{output_file}", outputFile);
+            //// pallet folder should be just the name of the pallet, without the leading
+            //// "pallet_" or "frame_", then separated with "-"
+            //let palletFolder = extra.split("_").slice(1).join("-").trim();
+            //branchCommand = branchCommand.replace("{pallet_folder}", palletFolder);
+        //}
 
-        let missing = checkRuntimeBenchmarkCommand(branchCommand);
-        let output = branchCommand.includes("--output");
+        //let missing = checkRuntimeBenchmarkCommand(branchCommand);
+        //let output = branchCommand.includes("--output");
 
-        if (missing.length > 0) {
-            return errorResult(`Missing required flags: ${missing.toString()}`)
-        }
+        //if (missing.length > 0) {
+            //return errorResult(`Missing required flags: ${missing.toString()}`)
+        //}
+
+        // remove
+        var benchConfig = { "title": "whatever" }
+        var branchCommand = "echo '' >> newFile"
+        var output = true
 
         var benchContext = new BenchContext(app, config);
         app.log(`Started runtime benchmark "${benchConfig.title}."`);
