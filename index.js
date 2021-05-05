@@ -6,6 +6,7 @@ const instrument = function(app, context) {
     if (context.github) {
         context.github.hook.before("request", async (options) => {
             app.log(`Sending request to ${options.url} with HTTP ${options.method}`)
+            console.log(options)
         })
     }
 }

@@ -84,7 +84,7 @@ async function benchBranch(app, config) {
 
         const gitPath = path.join(cwd, "git")
         if (!fs.existsSync(gitPath)) {
-            shell.mkdir("git")
+            shell.mkdir(gitPath)
         }
         shell.cd(gitPath)
 
