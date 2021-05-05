@@ -329,11 +329,8 @@ function checkAllowedCharacters(command) {
 const createCommitFromChangedFilesThroughGithubAPI = async function(
     benchContext,
     github,
-    { owner, repo, branch, baseSHA }
+    { owner, repo, branch, baseSHA, headSHA }
 ) {
-    var { error } = benchContext.runTask("git add .")
-    if (error) return errorResult(stderr);
-
     var {
         error,
         stdout: changedFiles,
@@ -348,13 +345,15 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
         .map(function (path) {
             return {
                 path,
-                type: "blob",
-                content: fs.readFileSync(path).toString(),
                 // convert file mode from decimal to Linux's format
                 // https://stackoverflow.com/q/11775884
-                mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString()
+                mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString(),
+                sha: headSHA
             }
         })
+    if (tree.length === 0) {
+        return
+    }
     const createTree = await github
         .git
         .createTree({
@@ -457,7 +456,7 @@ async function benchmarkRuntime(app, config, { github }) {
 
         // remove
         var benchConfig = { "title": "whatever" }
-        var branchCommand = "echo '' >> newFile"
+        var branchCommand = `echo '${new Date().toISOString()}' > LICENSE`
         var output = true
 
         var benchContext = new BenchContext(app, config);
@@ -469,6 +468,7 @@ async function benchmarkRuntime(app, config, { github }) {
         var { error, stdout } = benchContext.runTask("git rev-parse HEAD");
         if (error) return errorResult(stderr);
         const branchSHABeforeBench = stdout.trim()
+        console.log({ branchSHABeforeBench })
 
         // Merge master branch
         var { error, stderr } = benchContext.runTask(`git merge origin/${config.baseBranch}`);
@@ -482,11 +482,40 @@ async function benchmarkRuntime(app, config, { github }) {
 
         // If `--output` is set, we commit the benchmark file to the repo
         if (output) {
+            const tempBranchName = `bench-${new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")}`
+            const tempBranchTarget = `https://x-access-token:${config.pushToken}@github.com/${config.owner}/${config.repo}.git`
+            var { error, stderr } = benchContext.runTask(
+                `git checkout -b ${tempBranchName}`
+            );
+            if (error) return errorResult(stderr);
+
+            var { error, stderr } = benchContext.runTask(
+                `git commit -am "merge master and add benchmark results"`
+            );
+            if (error) return errorResult(stderr);
+
+            var { error, stdout, stderr } = benchContext.runTask("git rev-parse HEAD");
+            if (error) return errorResult(stderr);
+            const branchSHAAfterBench = stdout.trim()
+
+            var { error, stderr } = benchContext.runTask(
+                `git push ${tempBranchTarget} ${tempBranchName}`
+            );
+            if (error) return errorResult(stderr);
+
             var error = await createCommitFromChangedFilesThroughGithubAPI(
                 benchContext,
                 github,
-                { ...config, baseSHA: branchSHABeforeBench }
+                { ...config, baseSHA: branchSHABeforeBench, headSHA: branchSHAAfterBench }
             )
+
+            benchContext.runTask(
+                `git push --force --delete ${tempBranchTarget} ${tempBranchName}`
+            )
+            benchContext.runTask(
+                `git checkout ${config.branch} && git branch -D ${tempBranchName}`
+            )
+
             if (error) {
                 return error
             }

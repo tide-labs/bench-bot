@@ -43,7 +43,10 @@ module.exports = app => {
     const issue_comment = await context.github.issues.createComment(issueComment);
     const comment_id = issue_comment.data.id;
 
-    const auth = await authenticator({ type: "app" })
+    const auth = await authenticator({
+        type: "installation",
+        installationId: context.payload.installation.id
+    })
     let config = {
       owner: owner,
       repo: repo,
