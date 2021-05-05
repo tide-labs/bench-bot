@@ -135,7 +135,7 @@ async function benchBranch(app, config) {
         collector = new libCollector.Collector();
 
         var benchContext = new BenchContext(app, config);
-        console.log(`Started benchmark "${benchConfig.title}."`);
+        app.log(`Started benchmark "${benchConfig.title}."`);
 
         var error = prepareBranch(config, { benchContext })
         if (error) return error;
@@ -148,7 +148,12 @@ async function benchBranch(app, config) {
         var { error, stderr } = benchContext.runTask(`git merge origin/${config.branch}`);
         if (error) return errorResult(stderr, "merge");
 
-        var { stderr, error, stdout } = benchContext.runTask(benchConfig.branchCommand, `Benching branch: ${config.branch}...`);
+        var { stderr, error, stdout } = benchContext.runTask(
+            benchConfig.branchCommand,
+            {
+                title: `Benching branch: ${config.branch}...`
+            }
+        );
 
         await collector.CollectBranchCustomRunner(stdout);
 
@@ -320,6 +325,7 @@ function checkAllowedCharacters(command) {
 
 // Push changes through the API so that the commit gets automatically verified by Github
 // https://github.community/t/how-to-properly-gpg-sign-github-app-bot-created-commits/131364/2
+// Note: As is, this will not work for forks; details inside
 const createCommitFromChangedFilesThroughGithubAPI = async function(
     benchContext,
     github,
@@ -343,6 +349,7 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
             console.log({ path, mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString() })
             return {
                 path,
+                type: "blob",
                 content: fs.readFileSync(path).toString(),
                 // convert file mode from decimal to Linux's format
                 // https://stackoverflow.com/q/11775884
@@ -380,6 +387,10 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
     }
 
     const createdCommitSHA = createCommit.data.sha
+    // Does not work for forks' pull requests of github.git.updateRef does not
+    // work on them. The workaround is to create a temporary ref, validate the
+    // commits there, then pull them back here; of course this is not
+    // implemented at the moment.
     const updateBranch = await github.git.updateRef({
         owner,
         repo,
@@ -446,7 +457,7 @@ async function benchmarkRuntime(app, config, { github }) {
         }
 
         var benchContext = new BenchContext(app, config);
-        console.log(`Started runtime benchmark "${benchConfig.title}."`);
+        app.log(`Started runtime benchmark "${benchConfig.title}."`);
 
         var error = prepareBranch(config, { benchContext })
         if (error) return errorResult(error);
