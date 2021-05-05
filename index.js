@@ -4,6 +4,7 @@ var { benchBranch, benchmarkRuntime } = require("./bench");
 
 const instrument = function(app, context) {
     if (context.github) {
+        app.log("Instrumenting context's Github")
         context.github.hook.before("request", async (options) => {
             app.log(`Sending request to ${options.url} with HTTP ${options.method}`)
             console.log(options)
