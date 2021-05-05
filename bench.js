@@ -333,27 +333,49 @@ const createCommitFromChangedFilesThroughGithubAPI = async function(
 ) {
     var {
         error,
-        stdout: changedFiles,
+        stdout: changedPathsOutput,
         stderr
     } = benchContext.runTask(`git diff --name-only ${baseSHA}`)
     if (error) return errorResult(stderr);
 
-    const tree = changedFiles
+    const changedPaths = changedPathsOutput
         .trim()
         .split("\n")
         .filter(function (path) { return path.length !== 0 })
-        .map(function (path) {
-            return {
-                path,
-                // convert file mode from decimal to Linux's format
-                // https://stackoverflow.com/q/11775884
-                mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString(),
-                sha: headSHA
-            }
-        })
-    if (tree.length === 0) {
+    if (changedPaths.length === 0) {
         return
     }
+
+    // files need to be uploaded one-by-one because otherwise the JSON payload
+    // size might be too big and that would cause the request to fail
+    const blobs = []
+    for (const filePath of changedPaths) {
+        const response = await github.git.createBlob({
+            owner,
+            repo,
+            content: fs.readFileSync(filePath).toString()
+        })
+        if (response.status === 201) {
+            blobs.push({ filePath, sha: response.data.sha })
+        } else {
+            return errorResult(
+                JSON.stringify(createTree.data),
+                `failed to create blob for ${filePath}`
+            );
+        }
+    }
+
+    const tree = blobs
+        .map(function ({ filePath, sha }) {
+            return {
+                path: filePath,
+                sha,
+                // convert file mode from decimal to Linux's format
+                // https://stackoverflow.com/q/11775884
+                mode: parseInt(fs.statSync(filePath).mode.toString(8), 10).toString(),
+                type: "blob",
+            }
+        })
     const createTree = await github
         .git
         .createTree({
@@ -415,49 +437,44 @@ async function benchmarkRuntime(app, config, { github }) {
 
         let command = config.extra.split(" ")[0];
 
-        //var benchConfig;
-        //if (config.repo == "substrate") {
-            //benchConfig = SubstrateRuntimeBenchmarkConfigs[command];
-        //} else if (config.repo == "polkadot") {
-            //benchConfig = PolkadotRuntimeBenchmarkConfigs[command];
-        //} else {
-            //return errorResult(`${config.repo} repo is not supported.`)
-        //}
+        var benchConfig;
+        if (config.repo == "substrate") {
+            benchConfig = SubstrateRuntimeBenchmarkConfigs[command];
+        } else if (config.repo == "polkadot") {
+            benchConfig = PolkadotRuntimeBenchmarkConfigs[command];
+        } else {
+            return errorResult(`${config.repo} repo is not supported.`)
+        }
 
-        //var extra = config.extra.split(" ").slice(1).join(" ").trim();
+        var extra = config.extra.split(" ").slice(1).join(" ").trim();
 
-        //if (!checkAllowedCharacters(extra)) {
-            //return errorResult(`Not allowed to use #&|; in the command!`);
-        //}
+        if (!checkAllowedCharacters(extra)) {
+            return errorResult(`Not allowed to use #&|; in the command!`);
+        }
 
-        //// Append extra flags to the end of the command
-        //let branchCommand = benchConfig.branchCommand;
-        //if (command == "custom") {
-            //// extra here should just be raw arguments to add to the command
-            //branchCommand += " " + extra;
-        //} else {
-            //// extra here should be the name of a pallet
-            //branchCommand = branchCommand.replace("{pallet_name}", extra);
-            //// custom output file name so that pallets with path don't cause issues
-            //let outputFile = extra.includes("::") ? extra.replace("::", "_") + ".rs" : '';
-            //branchCommand = branchCommand.replace("{output_file}", outputFile);
-            //// pallet folder should be just the name of the pallet, without the leading
-            //// "pallet_" or "frame_", then separated with "-"
-            //let palletFolder = extra.split("_").slice(1).join("-").trim();
-            //branchCommand = branchCommand.replace("{pallet_folder}", palletFolder);
-        //}
+        // Append extra flags to the end of the command
+        let branchCommand = benchConfig.branchCommand;
+        if (command == "custom") {
+            // extra here should just be raw arguments to add to the command
+            branchCommand += " " + extra;
+        } else {
+            // extra here should be the name of a pallet
+            branchCommand = branchCommand.replace("{pallet_name}", extra);
+            // custom output file name so that pallets with path don't cause issues
+            let outputFile = extra.includes("::") ? extra.replace("::", "_") + ".rs" : '';
+            branchCommand = branchCommand.replace("{output_file}", outputFile);
+            // pallet folder should be just the name of the pallet, without the leading
+            // "pallet_" or "frame_", then separated with "-"
+            let palletFolder = extra.split("_").slice(1).join("-").trim();
+            branchCommand = branchCommand.replace("{pallet_folder}", palletFolder);
+        }
 
-        //let missing = checkRuntimeBenchmarkCommand(branchCommand);
-        //let output = branchCommand.includes("--output");
+        let missing = checkRuntimeBenchmarkCommand(branchCommand);
+        let output = branchCommand.includes("--output");
 
-        //if (missing.length > 0) {
-            //return errorResult(`Missing required flags: ${missing.toString()}`)
-        //}
-
-        // remove
-        var benchConfig = { "title": "whatever" }
-        var branchCommand = `echo '${new Date().toISOString()}' > LICENSE`
-        var output = true
+        if (missing.length > 0) {
+            return errorResult(`Missing required flags: ${missing.toString()}`)
+        }
 
         var benchContext = new BenchContext(app, config);
         app.log(`Started runtime benchmark "${benchConfig.title}."`);
@@ -468,13 +485,13 @@ async function benchmarkRuntime(app, config, { github }) {
         var { error, stdout } = benchContext.runTask("git rev-parse HEAD");
         if (error) return errorResult(stderr);
         const branchSHABeforeBench = stdout.trim()
-        console.log({ branchSHABeforeBench })
+        app.log(`Branch SHA before bench: ${branchSHABeforeBench}`)
 
         // Merge master branch
         var { error, stderr } = benchContext.runTask(`git merge origin/${config.baseBranch}`);
         if (error) return errorResult(stderr);
 
-        var { error, stderr } = benchContext.runTask(
+        var { error, stdout, stderr } = benchContext.runTask(
             branchCommand,
             { title: `Benching branch: ${config.branch}...` }
         );
@@ -482,38 +499,15 @@ async function benchmarkRuntime(app, config, { github }) {
 
         // If `--output` is set, we commit the benchmark file to the repo
         if (output) {
-            const tempBranchName = `bench-${new Date().toISOString().replaceAll(":", "-").replaceAll(".", "-")}`
-            const tempBranchTarget = `https://x-access-token:${config.pushToken}@github.com/${config.owner}/${config.repo}.git`
-            var { error, stderr } = benchContext.runTask(
-                `git checkout -b ${tempBranchName}`
-            );
-            if (error) return errorResult(stderr);
-
             var { error, stderr } = benchContext.runTask(
                 `git commit -am "merge master and add benchmark results"`
-            );
-            if (error) return errorResult(stderr);
-
-            var { error, stdout, stderr } = benchContext.runTask("git rev-parse HEAD");
-            if (error) return errorResult(stderr);
-            const branchSHAAfterBench = stdout.trim()
-
-            var { error, stderr } = benchContext.runTask(
-                `git push ${tempBranchTarget} ${tempBranchName}`
             );
             if (error) return errorResult(stderr);
 
             var error = await createCommitFromChangedFilesThroughGithubAPI(
                 benchContext,
                 github,
-                { ...config, baseSHA: branchSHABeforeBench, headSHA: branchSHAAfterBench }
-            )
-
-            benchContext.runTask(
-                `git push --force --delete ${tempBranchTarget} ${tempBranchName}`
-            )
-            benchContext.runTask(
-                `git checkout ${config.branch} && git branch -D ${tempBranchName}`
+                { ...config, baseSHA: branchSHABeforeBench }
             )
 
             if (error) {
