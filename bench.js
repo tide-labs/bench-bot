@@ -137,8 +137,8 @@ async function benchBranch(app, config) {
         var benchContext = new BenchContext(app, config);
         console.log(`Started benchmark "${benchConfig.title}."`);
 
-        var { error } = prepareBranch(config, { benchContext })
-        if (error) return errorResult(error);
+        var error = prepareBranch(config, { benchContext })
+        if (error) return error;
 
         var { stderr, error, stdout } = benchContext.runTask(benchConfig.branchCommand);
         if (error) return errorResult(stderr);
@@ -447,7 +447,7 @@ async function benchmarkRuntime(app, config, { github }) {
         var benchContext = new BenchContext(app, config);
         console.log(`Started runtime benchmark "${benchConfig.title}."`);
 
-        var { error } = prepareBranch(config, { benchContext })
+        var error = prepareBranch(config, { benchContext })
         if (error) return errorResult(error);
 
         var { error, stdout } = benchContext.runTask("git rev-parse HEAD");
