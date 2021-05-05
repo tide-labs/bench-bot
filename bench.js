@@ -5,8 +5,9 @@ function errorResult(stderr, step) {
     return { error: true, step, stderr }
 }
 
-let cwd = process.cwd();
-console.log(`process cwd: ${cwd}`);
+const cwd = process.cwd();
+const gitPath = path.join(cwd, "git")
+console.log(`process cwd: ${cwd}; gitPath: ${gitPath}`);
 
 const Mutex = require('async-mutex').Mutex;
 const mutex = new Mutex();
@@ -19,14 +20,16 @@ function BenchContext(app, config) {
     self.app = app;
     self.config = config;
 
-    self.runTask = function(cmd, { title, allowFailureCodes = [] } = {}) {
+    self.runTask = function(cmd, { title, allowedFailureCodes = [] } = {}) {
         app.log(title || cmd);
 
         const { stdout, stderr, code } = shell.exec(cmd, { silent: true });
         var error = false;
 
-        if (code != 0 && !allowFailureCodes.includes(code)) {
-            app.log(`ops.. Something went wrong (error code ${code})`);
+        if (allowedFailureCodes.includes(code)) {
+            app.log(`Command finished with allowed failure code ${code}`)
+        } else if (code != 0) {
+            app.log(`Command failed; exit code ${code}`);
             if (stderr) {
                 app.log(`stderr: ${stderr.trim()}`);
             }
@@ -66,6 +69,57 @@ var BenchConfigs = {
     }
 }
 
+const prepareBranch = function({
+    owner,
+    repo,
+    benchContext,
+    baseBranch,
+    branch
+}) {
+    if (!fs.existsSync(gitPath)) {
+        shell.mkdir(gitPath)
+    }
+
+    shell.cd(gitPath)
+
+    var { error, stderr } = benchContext.runTask(
+        `git clone https://github.com/${owner}/${repo}`,
+        {
+            allowedFailureCodes: [
+                128, // fatal: destination path 'foo' already exists and is not an empty directory.
+            ]
+        }
+    );
+    if (error) return errorResult(stderr);
+
+    shell.cd(path.join(cwd, "git", repo));
+
+    var { error, stderr } = benchContext.runTask("git clean -fd");
+    if (error) return errorResult(stderr);
+
+    var { error, stderr } = benchContext.runTask(`git fetch origin ${baseBranch}`);
+    if (error) return errorResult(stderr);
+
+    var { error, stderr } = benchContext.runTask(`git reset --hard && git checkout ${baseBranch}`)
+    if (error) return errorResult(stderr);
+
+    var { error } = benchContext.runTask(`git branch -D ${branch}`, {
+        allowedFailureCodes: [
+            1, // error: branch 'foo' not found.
+        ]
+    })
+    if (error) return errorResult(stderr);
+
+    var { error, stderr } = benchContext.runTask(`git fetch origin ${branch}`);
+    if (error) return errorResult(stderr);
+
+    var { error, stderr } = benchContext.runTask(`git checkout --track origin/${branch}`);
+    if (error) return errorResult(stderr);
+
+    var { error, stderr } = benchContext.runTask(`git reset --hard origin/${branch}`);
+    if (error) return errorResult(stderr);
+}
+
 async function benchBranch(app, config) {
     app.log("Waiting our turn to run benchmark...")
 
@@ -82,37 +136,8 @@ async function benchBranch(app, config) {
         var benchContext = new BenchContext(app, config);
         console.log(`Started benchmark "${benchConfig.title}."`);
 
-        const gitPath = path.join(cwd, "git")
-        if (!fs.existsSync(gitPath)) {
-            shell.mkdir(gitPath)
-        }
-        shell.cd(gitPath)
-
-        var { error, stderr } = benchContext.runTask(
-            `git clone https://github.com/${config.owner}/${config.repo}`,
-            {
-                allowFailureCodes: [
-                    128, // fatal: destination path 'foo' already exists and is not an empty directory.
-                ]
-            }
-        );
-        if (error) return errorResult(stderr);
-
-        shell.cd(cwd + `/git/${config.repo}`);
-
-        var { error, stderr } = benchContext.runTask(`git fetch origin/${baseBranch}`);
-        if (error) return errorResult(stderr);
-
-        var { error, stderr } = benchContext.runTask(`git fetch origin/${baseBranch}`);
-        if (error) return errorResult(stderr);
-
-        var { error, stderr } = benchContext.runTask(`git checkout ${config.baseBranch}`);
-        if (error) {
-            app.log("Git checkout failed, probably some dirt in directory... Will continue with git reset.");
-        }
-
-        var { error, stderr } = benchContext.runTask(`git reset --hard origin/${config.baseBranch}`);
-        if (error) return errorResult(stderr);
+        var { error } = prepareBranch(config)
+        if (error) return errorResult(error);
 
         var { stderr, error, stdout } = benchContext.runTask(benchConfig.branchCommand);
         if (error) return errorResult(stderr);
@@ -420,28 +445,9 @@ async function benchmarkRuntime(app, config, { github }) {
 
         var benchContext = new BenchContext(app, config);
         console.log(`Started runtime benchmark "${benchConfig.title}."`);
-        shell.mkdir("git")
-        shell.cd(cwd + "/git")
 
-        var { error } = benchContext.runTask(`git clone https://github.com/${config.owner}/${config.repo}`);
-
-        shell.cd(cwd + `/git/${config.repo}`);
-
-        var { error, stderr } = benchContext.runTask("git clean -fd");
-        if (error) return errorResult(stderr);
-
-        var { error, stderr } = benchContext.runTask(`git fetch origin ${config.baseBranch}`);
-        if (error) return errorResult(stderr);
-
-        //// Delete and recreate the target branch; note: does not work for forks
-        benchContext.runTask(`git reset --hard && git checkout ${config.baseBranch}`)
-        benchContext.runTask(`git branch -D ${config.branch}`)
-        var { error, stderr } = benchContext.runTask(`git fetch origin ${config.branch}`);
-        if (error) return errorResult(stderr);
-        var { error, stderr } = benchContext.runTask(`git checkout --track origin/${config.branch}`);
-        if (error) return errorResult(stderr);
-        var { error, stderr } = benchContext.runTask(`git reset --hard origin/${config.branch}`);
-        if (error) return errorResult(stderr);
+        var { error } = prepareBranch(config)
+        if (error) return errorResult(error);
 
         var { error, stdout } = benchContext.runTask("git rev-parse HEAD");
         if (error) return errorResult(stderr);
@@ -451,7 +457,10 @@ async function benchmarkRuntime(app, config, { github }) {
         var { error, stderr } = benchContext.runTask(`git merge origin/${config.baseBranch}`);
         if (error) return errorResult(stderr);
 
-        var { error, stderr } = benchContext.runTask(branchCommand, `Benching branch: ${config.branch}...`);
+        var { error, stderr } = benchContext.runTask(
+            branchCommand,
+            { title: `Benching branch: ${config.branch}...` }
+        );
         if (error) return errorResult(stderr);
 
         // If `--output` is set, we commit the benchmark file to the repo
