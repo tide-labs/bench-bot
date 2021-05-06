@@ -69,13 +69,14 @@ var BenchConfigs = {
     }
 }
 
-const prepareBranch = function({
+const prepareBranch = async function({
     owner,
     repo,
     baseBranch,
     branch
 }, {
-    benchContext
+    benchContext,
+    github
 }) {
     if (!fs.existsSync(gitPath)) {
         shell.mkdir(gitPath)
@@ -98,9 +99,6 @@ const prepareBranch = function({
     var { error, stderr } = benchContext.runTask("git clean -fd");
     if (error) return errorResult(stderr);
 
-    var { error, stderr } = benchContext.runTask(`git fetch origin ${baseBranch}`);
-    if (error) return errorResult(stderr);
-
     var { error, stderr } = benchContext.runTask(`git reset --hard && git checkout ${baseBranch}`)
     if (error) return errorResult(stderr);
 
@@ -110,6 +108,21 @@ const prepareBranch = function({
         ]
     })
     if (error) return errorResult(stderr);
+
+    // master is merged through the API so that we don't have to deal with
+    // unverified commits for this
+    const mergeResponse = await github.repos.merge({
+        owner,
+        repo,
+        base: branch,
+        head: baseBranch
+    })
+    if (mergeResponse.status !== 201 && mergeResponse.status !== 204) {
+        return errorResult(
+            JSON.stringify(mergeResponse.data),
+            `failed to update branch ${branch} with master`
+        );
+    }
 
     var { error, stderr } = benchContext.runTask(`git fetch origin ${branch}`);
     if (error) return errorResult(stderr);
@@ -121,7 +134,7 @@ const prepareBranch = function({
     if (error) return errorResult(stderr);
 }
 
-async function benchBranch(app, config) {
+async function benchBranch(app, config, { github }) {
     app.log("Waiting our turn to run benchmark...")
 
     const release = await mutex.acquire();
@@ -137,16 +150,8 @@ async function benchBranch(app, config) {
         var benchContext = new BenchContext(app, config);
         app.log(`Started benchmark "${benchConfig.title}."`);
 
-        var error = prepareBranch(config, { benchContext })
+        var error = await prepareBranch(config, { benchContext, github })
         if (error) return error;
-
-        var { stderr, error, stdout } = benchContext.runTask(benchConfig.branchCommand);
-        if (error) return errorResult(stderr);
-
-        await collector.CollectBaseCustomRunner(stdout);
-
-        var { error, stderr } = benchContext.runTask(`git merge origin/${config.branch}`);
-        if (error) return errorResult(stderr, "merge");
 
         var { stderr, error, stdout } = benchContext.runTask(
             benchConfig.branchCommand,
@@ -156,7 +161,6 @@ async function benchBranch(app, config) {
         );
 
         await collector.CollectBranchCustomRunner(stdout);
-
         let report = await collector.Report();
         report = `Benchmark: **${benchConfig.title}**\n\n` + report;
 
@@ -329,120 +333,74 @@ function checkAllowedCharacters(command) {
 const createCommitFromChangedFilesThroughGithubAPI = async function(
     benchContext,
     github,
-    { owner, repo, branch, baseSHA, headSHA }
+    { owner, repo, branch, baseSHA }
 ) {
-    var {
-        error,
-        stdout: changedPathsOutput,
-        stderr
-    } = benchContext.runTask(`git diff --name-only ${baseSHA}`)
+    var { error } = benchContext.runTask("git add .")
     if (error) return errorResult(stderr);
 
-    const changedPaths = changedPathsOutput
+    var {
+        error,
+        stdout: changedFiles,
+        stderr
+    } = benchContext.runTask("git diff --name-only HEAD")
+    if (error) return errorResult(stderr);
+
+    const tree = changedFiles
         .trim()
         .split("\n")
         .filter(function (path) { return path.length !== 0 })
-    if (changedPaths.length === 0) {
-        return
-    }
-
-    // files need to be uploaded one-by-one because otherwise the JSON payload
-    // size might be too big and that would cause the request to fail
-    const blobs = []
-    for (const filePath of changedPaths) {
-        const response = await github.git.createBlob({
+        .map(function (path) {
+            return {
+                path,
+                content: fs.readFileSync(path).toString(),
+                // convert file mode from decimal to Linux's format
+                // https://stackoverflow.com/q/11775884
+                mode: parseInt(fs.statSync(path).mode.toString(8), 10).toString()
+            }
+        })
+    const createTree = await github
+        .git
+        .createTree({
             owner,
             repo,
-            content: fs.readFileSync(filePath).toString()
+            tree,
+            base_tree: baseSHA
         })
-        if (response.status === 201) {
-            blobs.push({ filePath, sha: response.data.sha })
-        } else {
-            return errorResult(
-                JSON.stringify(createTree.data),
-                `failed to create blob for ${filePath}`
-            );
-        }
+    if (createTree.status !== 201) {
+        return errorResult(
+            JSON.stringify(createTree.data),
+            "failed to create a tree with the bench output"
+        );
     }
 
-    let invalidBlob = -1
-    while (true) {
-        invalidBlob++
-        if (invalidBlob > blobs.length - 1) {
-            break
-        }
+    const createdTreeSHA = createTree.data.sha
+    const createCommit = await github.git.createCommit({
+        owner: owner,
+        repo: repo,
+        tree: createdTreeSHA,
+        parents: [baseSHA],
+        message: "add benchmark results"
+    })
+    if (createCommit.status !== 201) {
+        return errorResult(
+            JSON.stringify(createCommit.data),
+            "failed to create commit with the bench output"
+        );
+    }
 
-        await new Promise(function (resolve) {
-            setTimeout(resolve, 3000)
-        })
-
-        const tryBlobs = [...blobs]
-        tryBlobs.splice(invalidBlob, 1)
-
-        const tree = tryBlobs
-            .map(function ({ filePath, sha }) {
-                return {
-                    path: filePath,
-                    sha,
-                    // convert file mode from decimal to Linux's format
-                    // https://stackoverflow.com/q/11775884
-                    mode: parseInt(fs.statSync(filePath).mode.toString(8), 10).toString(),
-                    type: "blob",
-                }
-            })
-        const createTree = await github
-            .git
-            .createTree({
-                owner,
-                repo,
-                tree,
-                base_tree: baseSHA
-            })
-        if (createTree.status !== 201) {
-            continue
-            //return errorResult(
-                //JSON.stringify(createTree.data),
-                //"failed to create a tree with the bench output"
-            //);
-        }
-
-        const createdTreeSHA = createTree.data.sha
-        const createCommit = await github.git.createCommit({
-            owner: owner,
-            repo: repo,
-            tree: createdTreeSHA,
-            parents: [baseSHA],
-            message: "merge master and add benchmark results"
-        })
-        if (createCommit.status !== 201) {
-            continue
-            //return errorResult(
-                //JSON.stringify(createCommit.data),
-                //"failed to create commit with the bench output"
-            //);
-        }
-
-        const createdCommitSHA = createCommit.data.sha
-        // Does not work for forks' pull requests of github.git.updateRef does not
-        // work on them. The workaround is to create a temporary ref, validate the
-        // commits there, then pull them back here; of course this is not
-        // implemented at the moment.
-        const updateBranch = await github.git.updateRef({
-            owner,
-            repo,
-            sha: createdCommitSHA,
-            ref: `heads/${branch}`
-        })
-        if (updateBranch.status !== 200) {
-            continue
-            //return errorResult(
-                //JSON.stringify(updateBranch.data),
-                //`failed to update branch ${branch} with the bench output`
-            //);
-        }
-
-        console.log({ worked: tryBlobs, invalidBlob })
-        break
+    const createdCommitSHA = createCommit.data.sha
+    const updateBranch = await github.git.updateRef({
+        owner,
+        repo,
+        sha: createdCommitSHA,
+        // Note: this does not work for forks
+        ref: `heads/${branch}`
+    })
+    if (updateBranch.status !== 200) {
+        return errorResult(
+            JSON.stringify(updateBranch.data),
+            `failed to update branch ${branch} with the bench output`
+        );
     }
 }
 
@@ -500,17 +458,12 @@ async function benchmarkRuntime(app, config, { github }) {
         var benchContext = new BenchContext(app, config);
         app.log(`Started runtime benchmark "${benchConfig.title}."`);
 
-        var error = prepareBranch(config, { benchContext })
+        var error = await prepareBranch(config, { benchContext, github })
         if (error) return errorResult(error);
 
         var { error, stdout } = benchContext.runTask("git rev-parse HEAD");
         if (error) return errorResult(stderr);
         const branchSHABeforeBench = stdout.trim()
-        app.log(`Branch SHA before bench: ${branchSHABeforeBench}`)
-
-        // Merge master branch
-        var { error, stderr } = benchContext.runTask(`git merge origin/${config.baseBranch}`);
-        if (error) return errorResult(stderr);
 
         var { error, stdout, stderr } = benchContext.runTask(
             branchCommand,
@@ -520,11 +473,6 @@ async function benchmarkRuntime(app, config, { github }) {
 
         // If `--output` is set, we commit the benchmark file to the repo
         if (output) {
-            var { error, stderr } = benchContext.runTask(
-                `git commit -am "merge master and add benchmark results"`
-            );
-            if (error) return errorResult(stderr);
-
             var error = await createCommitFromChangedFilesThroughGithubAPI(
                 benchContext,
                 github,
