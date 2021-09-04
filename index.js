@@ -92,6 +92,7 @@ module.exports = app => {
     } else {
       report = await benchBranch(app, config)
     };
+    return
 
     // Max github body is 65536 characters... we are a little conservative.
     report = report.substr(-65000)
