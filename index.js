@@ -71,9 +71,9 @@ module.exports = app => {
     const branch = pr.data.head.ref;
     app.log(`branch: ${branch}`);
 
-    const issueComment = context.issue({ body: `Starting benchmark for branch: ${branch} (vs ${baseBranch})\n\n Comment will be updated.` });
-    const issue_comment = await context.octokit.issues.createComment(issueComment);
-    const comment_id = issue_comment.data.id;
+    //const issueComment = context.issue({ body: `Starting benchmark for branch: ${branch} (vs ${baseBranch})\n\n Comment will be updated.` });
+    //const issue_comment = await context.octokit.issues.createComment(issueComment);
+    //const comment_id = issue_comment.data.id;
 
     let config = {
       owner,
