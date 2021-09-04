@@ -364,21 +364,21 @@ async function benchmarkRuntime(app, config) {
             const regex = /--output(?:=|\s+)(".+?"|\S+)/;
             const path = branchCommand.match(regex)[1];
             console.log(require("fs").readFileSync(path))
-            benchContext.runTask(`git add ${path}`);
-            benchContext.runTask(`git commit -m "${branchCommand}"`);
+            //benchContext.runTask(`git add ${path}`);
+            //benchContext.runTask(`git commit -m "${branchCommand}"`);
 
-            const target = `${config.contributor}/${config.repo}`
-            const pushDomain = await config.getPushDomain()
+            //const target = `${config.contributor}/${config.repo}`
+            //const pushDomain = await config.getPushDomain()
 
-            try {
-              benchContext.runTask(`git remote set-url pr ${pushDomain}/${target}.git`, "Setting up remote for PR");
-              benchContext.runTask(`git push pr HEAD`);
-            } catch (err) {
-              const errorDate = new Date.toISOString()
-              console.log(`Push error happened at ${errorDate}:`)
-              console.error(err)
-              report = `${report}\n\nNOTE: Error occurred while trying to push the generated weights (at ${errorDate} in the logs).`
-            }
+            //try {
+              //benchContext.runTask(`git remote set-url pr ${pushDomain}/${target}.git`, "Setting up remote for PR");
+              //benchContext.runTask(`git push pr HEAD`);
+            //} catch (err) {
+              //const errorDate = new Date.toISOString()
+              //console.log(`Push error happened at ${errorDate}:`)
+              //console.error(err)
+              //report = `${report}\n\nNOTE: Error occurred while trying to push the generated weights (at ${errorDate} in the logs).`
+            //}
         }
 
         return report;
