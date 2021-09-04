@@ -363,6 +363,7 @@ async function benchmarkRuntime(app, config) {
         if (output) {
             const regex = /--output(?:=|\s+)(".+?"|\S+)/;
             const path = branchCommand.match(regex)[1];
+            console.log(require("fs").readFileSync(path))
             benchContext.runTask(`git add ${path}`);
             benchContext.runTask(`git commit -m "${branchCommand}"`);
 
