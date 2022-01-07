@@ -50,7 +50,7 @@ check_app_runtime_executables() {
 }
 
 remote_repo_name="bench-bot"
-remote_repo="https://github.com/paritytech/$remote_repo_name"
+remote_repo="https://github.com/tide-labs/$remote_repo_name"
 
 benchbot_user="benchbot"
 benchbot_session="/tmp/bench-bot"
