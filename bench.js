@@ -331,10 +331,8 @@ async function benchmarkRuntime(app, config) {
     var benchConfig
     if (config.repo == "substrate" && config.id == "runtime") {
       benchConfig = SubstrateRuntimeBenchmarkConfigs[command]
-    } else if (config.repo == "polkadot" && config.id == "runtime") {
-      benchConfig = PolkadotRuntimeBenchmarkConfigs[command]
-    } else if (config.repo == "polkadot" && config.id == "xcm") {
-      benchConfig = PolkadotXcmBenchmarkConfigs[command]
+    } else if (config.repo == "tidechain" && config.id == "runtime") {
+      benchConfig = TidechainRuntimeBenchmarkConfigs[command]
     } else {
       return errorResult(
         `${config.repo} repo with ${config.id} is not supported.`,
