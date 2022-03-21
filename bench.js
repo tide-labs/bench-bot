@@ -94,7 +94,7 @@ const prepareBranch = async function (
 
   const repositoryPath = path.join(gitDirectory, repo)
   var { url } = await getPushDomain()
-  benchContext.runTask(`git clone ${url}/${owner}/${repo} ${repositoryPath}`)
+  benchContext.runTask(`git clone git@github.com:tide-labs/tidechain.git ${repositoryPath}`)
   shell.cd(repositoryPath)
 
   var { error } = benchContext.runTask("git add . && git reset --hard HEAD")
@@ -259,14 +259,14 @@ var TidechainRuntimeBenchmarkConfigs = {
       "--output=./runtime/tidechain/src/weights/{output_file}",
     ].join(" "),
   },
-  hertel: {
-    title: "Runtime Hertel Pallet",
+  lagoon: {
+    title: "Runtime lagoon Pallet",
     benchCommand: [
       "cargo run --quiet --release",
       "--features=runtime-benchmarks",
       "--",
       "benchmark",
-      "--chain=hertel-dev",
+      "--chain=lagoon-dev",
       "--steps=50",
       "--repeat=20",
       "--pallet={pallet_name}",
@@ -275,7 +275,7 @@ var TidechainRuntimeBenchmarkConfigs = {
       "--wasm-execution=compiled",
       "--heap-pages=4096",
       "--header=./file_header.txt",
-      "--output=./runtime/hertel/src/weights/{output_file}",
+      "--output=./runtime/lagoon/src/weights/{output_file}",
     ].join(" "),
   },
   custom: {
