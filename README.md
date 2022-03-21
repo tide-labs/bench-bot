@@ -51,32 +51,21 @@ The [run script](./run) is used to manage the application. Use `run help` for
 documentation about its options.
 
 `run bootstrap` will take care of creating and installing everything from
-scratch. For it to fully work, you'll also need to set up [environment
-variables](#configuration) which optionally can be done through a `.env` file
-in the bot's directory.
+scratch. After install, you'll also need to set up
+[environment variables](#configuration) which optionally can be done through
+a `.env` file in the bot's installation path.
 
 ### Bot commands
 
 - `run {start,stop,restart}`: execute the relevant action for the bot.
 - `run update [ref]`: restart the bot with the branch or PR
   - For branch: `ssh user@remote '/home/benchbot/bench-bot/run update master'`
-  - For PR: `ssh user@remote '/home/benchbot/bench-bot/run update pull/number/head:branch'` 
+  - For PR: `ssh user@remote '/home/benchbot/bench-bot/run update pull/number/head:branch'`
     e.g. `pull/1/head:master`
-
-### Monitoring Service commands
-
-- `run monitor {install,uninstall}`: install or uninstall the monitoring
-  service
-- `run monitor {start,restart,stop,status,...}`: acts as a wrapper for
-  `systemctl`
 
 ### Logs
 
-The logs will be output to the systemd journal:
-
-`sudo journalctl -u benchbot-monitor.service`
-
-As well as to `./log.txt`.
+See <https://gitlab.parity.io/groups/parity/opstooling/-/wikis>
 
 # Required Github settings
 
