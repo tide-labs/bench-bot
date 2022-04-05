@@ -94,7 +94,7 @@ const prepareBranch = async function (
 
   const repositoryPath = path.join(gitDirectory, repo)
   var { url } = await getPushDomain()
-  benchContext.runTask(`git clone git@github.com:tide-labs/tidechain.git ${repositoryPath}`)
+  benchContext.runTask(`git clone git@github.com:tidelabs/tidechain.git ${repositoryPath}`)
   shell.cd(repositoryPath)
 
   var { error } = benchContext.runTask("git add . && git reset --hard HEAD")
